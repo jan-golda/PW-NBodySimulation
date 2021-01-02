@@ -5,7 +5,7 @@ from typing import Iterable, Tuple
 import numpy as np
 
 from simulations.core import Simulation
-from simulations.core.utils import gravitational_force
+from simulations.utils import gravitational_force
 
 
 class BruteForceSimulation(Simulation):
