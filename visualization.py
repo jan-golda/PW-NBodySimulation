@@ -15,7 +15,7 @@ class Visualization:
         self._min_step_time = 1.0 / max_fps
 
         # display setup
-        self._plotter = Plotter(interactive=False, title=title)
+        self._plotter = Plotter(interactive=False, title=title, axes=4)
 
         # bodies setup
         sizes = simulation.masses * size_multiplier
