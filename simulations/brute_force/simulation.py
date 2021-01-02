@@ -23,29 +23,31 @@ class BruteForceSimulation(Simulation):
     def simulate(self) -> Iterable[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """ Runs Brute-Force simulation. """
         while True:
+            self._update_accelerations()
+            self._update_positions()
 
-            # reset accelerations
-            self._accelerations[:] = 0.0
-
-            # calculate accelerations
-            for b1, b2 in itertools.combinations(range(self.bodies), 2):
-                force = gravitational_force(
-                    pos1=self._positions[b1],
-                    pos2=self._positions[b2],
-                    mass1=self._masses[b1],
-                    mass2=self._masses[b2],
-                    g=self.gravitational_constant,
-                    softening=self.softening
-                )
-                self._accelerations[b1] += force / self._masses[b1]
-                self._accelerations[b2] -= force / self._masses[b2]
-
-            # update velocities and positions
-            self._velocities += self._accelerations * self.time_step
-            self._positions += self._velocities * self.time_step
-
-            # return simulation results
             yield self._positions, self._velocities, self._accelerations
+
+    def _update_accelerations(self):
+        """ Calculates accelerations of the bodies. """
+        self._accelerations[:] = 0.0
+
+        for b1, b2 in itertools.combinations(range(self.bodies), 2):
+            force = gravitational_force(
+                pos1=self._positions[b1],
+                pos2=self._positions[b2],
+                mass1=self._masses[b1],
+                mass2=self._masses[b2],
+                g=self.gravitational_constant,
+                softening=self.softening
+            )
+            self._accelerations[b1] += force / self._masses[b1]
+            self._accelerations[b2] -= force / self._masses[b2]
+
+    def _update_positions(self):
+        """ Calculates positions of the bodies. """
+        self._velocities += self._accelerations * self.time_step
+        self._positions += self._velocities * self.time_step
 
     @property
     def positions(self) -> np.ndarray:
