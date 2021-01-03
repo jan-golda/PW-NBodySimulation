@@ -24,7 +24,7 @@ PARSER.add_argument(
     '-m', '--method',
     type=str,
     required=True,
-    choices=['brute'],
+    choices=['brute', 'sequential'],
     help='Simulation method'
 )
 
@@ -66,6 +66,14 @@ PARSER.add_argument(
     default=0.1,
     metavar='S',
     help='Softening parameter that prevents velocities from going into infinity'
+)
+
+PARSER.add_argument(
+    '-t', '--theta',
+    type=float,
+    default=0.5,
+    metavar='T',
+    help='Theta parameter of the Barnes-Hut simulation'
 )
 
 PARSER.add_argument(

@@ -6,12 +6,14 @@ import numpy as np
 from distributions import center_of_mass_distribution
 from simulations.brute_force import BruteForceSimulation
 from simulations.core import Simulation
+from simulations.sequential import SequentialSimulation
 from visualization import Visualization
 from arguments import PARSER
 
 # available simulation methods
 SIMULATIONS: Dict[str, Type[Simulation]] = {
-    'brute': BruteForceSimulation
+    'brute': BruteForceSimulation,
+    'sequential': SequentialSimulation
 }
 
 # available initial distributions

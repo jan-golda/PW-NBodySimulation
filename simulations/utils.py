@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 
 GRAVITATIONAL_CONSTANT: float = 6.67408e-11
@@ -24,3 +26,28 @@ def gravitational_force(pos1: np.ndarray, pos2: np.ndarray,
     vector = pos2 - pos1
     distance = np.linalg.norm(vector) + softening
     return g * mass1 * mass2 * vector / (distance ** 3)
+
+
+def octant_coords(coords_min: np.ndarray, coords_max: np.ndarray, octant: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Calculates coordinates of the specified octant in given space.
+    Args:
+        coords_min: Minimal coordinates of the region (float (3,)).
+        coords_max: Maximal coordinates of the region (float (3,)).
+        octant: Number of octant [0..8].
+
+    Returns:
+        (octant_min, octant_max) - octant coordinates.
+    """
+    assert octant in range(8)
+
+    # decode octant into binary
+    indices = (octant / np.array([1, 2, 4])).astype(np.int) % 2
+
+    coords = np.array([
+        coords_min,
+        (coords_min + coords_max) / 2,
+        coords_max
+    ])
+
+    return coords[indices, [0, 1, 2]], coords[indices+1, [0, 1, 2]]
