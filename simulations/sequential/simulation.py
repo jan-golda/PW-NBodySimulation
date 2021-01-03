@@ -26,11 +26,11 @@ class SequentialSimulation(Simulation):
         self._masses = np.array(masses, dtype=np.float)
         self._accelerations = np.zeros_like(self._velocities)
 
-        self._nodes_position = []
-        self._nodes_masse = []
-        self._nodes_size = []
-        self._nodes_children_type = []
-        self._nodes_children_id = []
+        self._nodes_positions = []
+        self._nodes_masses = []
+        self._nodes_sizes = []
+        self._nodes_children_types = []
+        self._nodes_children_ids = []
 
     def simulate(self) -> Iterable[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """ Runs sequential implementation of Barnes-Hut simulation. """
@@ -45,11 +45,11 @@ class SequentialSimulation(Simulation):
         """ Builds octree used in Barnes-Hut. """
 
         # cleanup old tree
-        self._nodes_position = []
+        self._nodes_positions = []
         self._nodes_mass = []
-        self._nodes_size = []
-        self._nodes_children_type = []
-        self._nodes_children_id = []
+        self._nodes_sizes = []
+        self._nodes_children_types = []
+        self._nodes_children_ids = []
 
         min_pos = np.min(self._positions)
         max_pos = np.max(self._positions)
@@ -81,12 +81,12 @@ class SequentialSimulation(Simulation):
             return OCTANT_BODY, bodies[0]
 
         # create new node
-        node_id = len(self._nodes_position)
-        self._nodes_position.append(np.average(self._positions[bodies], axis=0, weights=self._masses[bodies]))
+        node_id = len(self._nodes_positions)
+        self._nodes_positions.append(np.average(self._positions[bodies], axis=0, weights=self._masses[bodies]))
         self._nodes_mass.append(np.sum(self._masses[bodies]))
-        self._nodes_size.append(coords_max[0] - coords_min[0])
-        self._nodes_children_type.append(np.empty((8,), dtype=np.int))
-        self._nodes_children_id.append(np.empty((8,), dtype=np.int))
+        self._nodes_sizes.append(coords_max[0] - coords_min[0])
+        self._nodes_children_types.append(np.empty((8,), dtype=np.int))
+        self._nodes_children_ids.append(np.empty((8,), dtype=np.int))
 
         # calculate octant for each body
         coords_mid = (coords_min + coords_max) / 2
@@ -99,8 +99,8 @@ class SequentialSimulation(Simulation):
                 coords_min=octant_coords(coords_min, coords_max, i)[0],
                 coords_max=octant_coords(coords_min, coords_max, i)[1]
             )
-            self._nodes_children_type[node_id][i] = child_type
-            self._nodes_children_id[node_id][i] = child_id
+            self._nodes_children_types[node_id][i] = child_type
+            self._nodes_children_ids[node_id][i] = child_id
 
         return OCTANT_NODE, node_id
 
@@ -132,17 +132,17 @@ class SequentialSimulation(Simulation):
         # in case of node octant
         else:
             # check the distance
-            distance = np.linalg.norm(self._positions[body_id] - self._nodes_position[node_id])
-            node_size = self._nodes_size[node_id]
+            distance = np.linalg.norm(self._positions[body_id] - self._nodes_positions[node_id])
+            node_size = self._nodes_sizes[node_id]
 
             # visit children if is not far enough
             if node_size / distance > self._theta:
-                for child_type, child_id in zip(self._nodes_children_type[node_id], self._nodes_children_id[node_id]):
+                for child_type, child_id in zip(self._nodes_children_types[node_id], self._nodes_children_ids[node_id]):
                     self._update_body_acceleration(body_id, child_type, child_id)
                 return
 
             # in other case treat as a single body
-            position = self._nodes_position[node_id]
+            position = self._nodes_positions[node_id]
             mass = self._nodes_mass[node_id]
 
         # calculate acceleration
