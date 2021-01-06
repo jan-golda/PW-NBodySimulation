@@ -87,11 +87,24 @@ PARSER.add_argument(
     '--seed',
     type=int,
     metavar='SEED',
-    help='Seed used for defining initial conditions.'
+    help='Seed used for defining initial conditions'
 )
 
 PARSER.add_argument(
     '--show_trails',
     action='store_true',
-    help='Show body trails.'
+    help='Show body trails'
+)
+
+PARSER.add_argument(
+    '--benchmark',
+    action='store_true',
+    help='Run in benchmarking mode'
+)
+
+PARSER.add_argument(
+    '--benchmark_steps',
+    type=int,
+    default=300,
+    help='Number of simulation steps in a benchmark'
 )

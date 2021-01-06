@@ -1,8 +1,9 @@
-import argparse
+import sys
 from typing import Dict, Type, Callable, Tuple
 
 import numpy as np
 
+from benchmarking import benchmark
 from distributions import center_of_mass_distribution
 from simulations.brute_force import BruteForceSimulation
 from simulations.core import Simulation
@@ -39,6 +40,12 @@ if __name__ == '__main__':
         params=params
     )
 
+    # benchmarking
+    if params.benchmark:
+        benchmark(simulation, params)
+        sys.exit()
+
+    # visualization
     visualization = Visualization(
         simulation=simulation,
         max_fps=params.max_fps,
