@@ -77,6 +77,13 @@ PARSER.add_argument(
 )
 
 PARSER.add_argument(
+    '-p', '--processes',
+    type=int,
+    metavar='N',
+    help='Number of processes used in parallel implementation. Defaults to number of available CPUs'
+)
+
+PARSER.add_argument(
     '--seed',
     type=int,
     metavar='SEED',
