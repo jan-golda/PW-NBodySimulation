@@ -1,7 +1,9 @@
+from typing import List, Tuple
+
 import numpy as np
 
 from simulations.parallel.shared_data import SharedData
-from simulations.utils import gravitational_force
+from simulations.utils import gravitational_force, octant_coords
 
 OCTANT_EMPTY = 0
 OCTANT_BODY = 1
@@ -14,6 +16,53 @@ def initialize(data: SharedData):
     """ Initializes the worker with given shared data. """
     global shared_data
     shared_data = data
+
+
+def build_octree_branch(bodies: List[int], coords_min: np.ndarray, coords_max: np.ndarray) -> Tuple[int, int]:
+    """
+    Builds a single branch of the octree.
+    Args:
+        bodies: Indices of the bodies that lay in this region.
+        coords_min: Minimal coordinates of the region (float (3,)).
+        coords_max: Maximal coordinates of the region (float (3,)).
+    Returns:
+        (octant_type, id):
+            octant_type: one of OCTANT_EMPTY, OCTANT_BODY or OCTANT_NODE
+            id: for OCTANT_EMPTY its -1, for OCTANT_BODY its body id and for OCTANT_NODE is node id
+    """
+    # in case of empty octant
+    if len(bodies) == 0:
+        return OCTANT_EMPTY, -1
+
+    # in case of single body
+    if len(bodies) == 1:
+        return OCTANT_BODY, bodies[0]
+
+    # get a id for a new node
+    with shared_data.nodes_count.get_lock():
+        node_id = shared_data.nodes_count.value
+        shared_data.nodes_count.value = node_id + 1
+
+    # create new node
+    shared_data.nodes_positions[node_id] = np.average(shared_data.positions[bodies], axis=0, weights=shared_data.masses[bodies])
+    shared_data.nodes_masses[node_id] = np.sum(shared_data.masses[bodies])
+    shared_data.nodes_sizes[node_id] = coords_max[0] - coords_min[0]
+
+    # calculate octant for each body
+    coords_mid = (coords_min + coords_max) / 2
+    bodies_octant = np.sum((shared_data.positions[bodies] > coords_mid) * [1, 2, 4], axis=1)
+
+    # create octants
+    for i in range(8):
+        child_type, child_id = build_octree_branch(
+            bodies=[body_id for body_id, octant in zip(bodies, bodies_octant) if octant == i],
+            coords_min=octant_coords(coords_min, coords_max, i)[0],
+            coords_max=octant_coords(coords_min, coords_max, i)[1]
+        )
+        shared_data.nodes_children_types[node_id, i] = child_type
+        shared_data.nodes_children_ids[node_id, i] = child_id
+
+    return OCTANT_NODE, node_id
 
 
 def update_acceleration(body_id: int):

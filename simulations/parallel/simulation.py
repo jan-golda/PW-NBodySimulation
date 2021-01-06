@@ -1,8 +1,8 @@
 import atexit
 from argparse import Namespace
-from multiprocessing import Pool
+from multiprocessing import Pool, Value
 from multiprocessing.managers import SharedMemoryManager
-from typing import Iterable, Tuple, List
+from typing import Iterable, Tuple
 
 import numpy as np
 
@@ -31,16 +31,19 @@ class ParallelSimulation(Simulation):
         self._memory_manager = SharedMemoryManager()
         self._memory_manager.start()
 
+        max_nodes = self.bodies + 64
+
         # create shared memory buffers
         self._positions_shm = self._memory_manager.SharedMemory(positions.nbytes)
         self._velocities_shm = self._memory_manager.SharedMemory(velocities.nbytes)
         self._accelerations_shm = self._memory_manager.SharedMemory(velocities.nbytes)
         self._masses_shm = self._memory_manager.SharedMemory(masses.nbytes)
-        self._nodes_positions_shm = self._memory_manager.SharedMemory(positions.nbytes)
-        self._nodes_masses_shm = self._memory_manager.SharedMemory(masses.nbytes)
-        self._nodes_sizes_shm = self._memory_manager.SharedMemory(masses.nbytes)
-        self._nodes_children_types_shm = self._memory_manager.SharedMemory(np.empty((self.bodies, 8), np.int).nbytes)
-        self._nodes_children_ids_shm = self._memory_manager.SharedMemory(np.empty((self.bodies, 8), np.int).nbytes)
+
+        self._nodes_positions_shm = self._memory_manager.SharedMemory(np.empty((max_nodes, 3), np.float).nbytes)
+        self._nodes_masses_shm = self._memory_manager.SharedMemory(np.empty((max_nodes, ), np.float).nbytes)
+        self._nodes_sizes_shm = self._memory_manager.SharedMemory(np.empty((max_nodes, ), np.float).nbytes)
+        self._nodes_children_types_shm = self._memory_manager.SharedMemory(np.empty((max_nodes, 8), np.int).nbytes)
+        self._nodes_children_ids_shm = self._memory_manager.SharedMemory(np.empty((max_nodes, 8), np.int).nbytes)
 
         # setup NumPy arrays
         self._data = SharedData(
@@ -49,16 +52,18 @@ class ParallelSimulation(Simulation):
             gravitational_constant=self.gravitational_constant,
             softening=self.softening,
 
+            nodes_count=Value('i', 0),
+
             positions=np.ndarray((self.bodies, 3), dtype=np.float, buffer=self._positions_shm.buf),
             velocities=np.ndarray((self.bodies, 3), dtype=np.float, buffer=self._velocities_shm.buf),
             accelerations=np.ndarray((self.bodies, 3), dtype=np.float, buffer=self._accelerations_shm.buf),
             masses=np.ndarray((self.bodies, ), dtype=np.float, buffer=self._masses_shm.buf),
 
-            nodes_positions=np.ndarray((self.bodies, 3), dtype=np.float, buffer=self._nodes_positions_shm.buf),
-            nodes_masses=np.ndarray((self.bodies, ), dtype=np.float, buffer=self._nodes_masses_shm.buf),
-            nodes_sizes=np.ndarray((self.bodies, ), dtype=np.float, buffer=self._nodes_sizes_shm.buf),
-            nodes_children_types=np.ndarray((self.bodies, 8), dtype=np.int, buffer=self._nodes_children_types_shm.buf),
-            nodes_children_ids=np.ndarray((self.bodies, 8), dtype=np.int, buffer=self._nodes_children_ids_shm.buf)
+            nodes_positions=np.ndarray((max_nodes, 3), dtype=np.float, buffer=self._nodes_positions_shm.buf),
+            nodes_masses=np.ndarray((max_nodes, ), dtype=np.float, buffer=self._nodes_masses_shm.buf),
+            nodes_sizes=np.ndarray((max_nodes, ), dtype=np.float, buffer=self._nodes_sizes_shm.buf),
+            nodes_children_types=np.ndarray((max_nodes, 8), dtype=np.int, buffer=self._nodes_children_types_shm.buf),
+            nodes_children_ids=np.ndarray((max_nodes, 8), dtype=np.int, buffer=self._nodes_children_ids_shm.buf)
         )
 
         # copy data into shared arrays
@@ -91,64 +96,73 @@ class ParallelSimulation(Simulation):
 
     def _build_octree(self):
         """ Builds octree used in Barnes-Hut. """
+        global_coords_min = np.repeat(np.min(self._data.positions), 3)
+        global_coords_max = np.repeat(np.max(self._data.positions), 3)
+        global_coords_mid = (global_coords_min + global_coords_max) / 2
 
-        # cleanup old tree
-        self._nodes_count = 0
+        # manually build first node
+        self._data.nodes_count.value = 1
+        self._data.nodes_positions[0] = np.average(self._data.positions, axis=0, weights=self._data.masses)
+        self._data.nodes_masses[0] = np.sum(self._data.masses)
+        self._data.nodes_sizes[0] = global_coords_max[0] - global_coords_min[0]
 
-        min_pos = np.min(self._data.positions)
-        max_pos = np.max(self._data.positions)
+        # calculate base octant for each body
+        bodies_base_octant = np.sum((self._data.positions > global_coords_mid) * [1, 2, 4], axis=1)
 
-        self._build_octree_branch(
-            bodies=list(range(self.bodies)),
-            coords_min=np.array([min_pos] * 3),
-            coords_max=np.array([max_pos] * 3)
-        )
+        tasks_targets = []
+        tasks_args = []
 
-    def _build_octree_branch(self, bodies: List[int], coords_min: np.ndarray, coords_max: np.ndarray) -> Tuple[int, int]:
-        """
-        Builds a single branch of the octree.
-        Args:
-            bodies: Indices of the bodies that lay in this region.
-            coords_min: Minimal coordinates of the region (float (3,)).
-            coords_max: Maximal coordinates of the region (float (3,)).
-        Returns:
-            (octant_type, id):
-                octant_type: one of OCTANT_EMPTY, OCTANT_BODY or OCTANT_NODE
-                id: for OCTANT_EMPTY its -1, for OCTANT_BODY its body id and for OCTANT_NODE is node id
-        """
-        # in case of empty octant
-        if len(bodies) == 0:
-            return OCTANT_EMPTY, -1
+        # build second layer of nodes and collect tasks
+        for octant in range(8):
+            coords_min, coords_max = octant_coords(global_coords_min, global_coords_max, octant)
+            coords_mid = (coords_min + coords_max) / 2
 
-        # in case of single body
-        if len(bodies) == 1:
-            return OCTANT_BODY, bodies[0]
+            # get indices of bodies in this octant
+            octant_bodies = np.argwhere(bodies_base_octant == octant).flatten()
 
-        # create new node
-        node_id = self._nodes_count
-        self._nodes_count += 1
-        self._data.nodes_positions[node_id] = np.average(self._data.positions[bodies], axis=0, weights=self._data.masses[bodies])
-        self._data.nodes_masses[node_id] = np.sum(self._data.masses[bodies])
-        self._data.nodes_sizes[node_id] = coords_max[0] - coords_min[0]
+            # if node is empty or has one body handle it separately
+            if octant_bodies.size == 0:
+                self._data.nodes_children_types[0, octant] = OCTANT_EMPTY
+                continue
+            if octant_bodies.size == 1:
+                self._data.nodes_children_types[0, octant] = OCTANT_BODY
+                self._data.nodes_children_ids[0, octant] = octant_bodies[0]
+                continue
 
-        # calculate octant for each body
-        coords_mid = (coords_min + coords_max) / 2
-        bodies_octant = np.sum((self._data.positions[bodies] > coords_mid) * [1, 2, 4], axis=1)
+            # create node
+            node_id = self._data.nodes_count.value
+            self._data.nodes_count.value = node_id + 1
+            self._data.nodes_children_types[0, octant] = OCTANT_NODE
+            self._data.nodes_children_ids[0, octant] = node_id
 
-        # create octants
-        for i in range(8):
-            child_type, child_id = self._build_octree_branch(
-                bodies=[body_id for body_id, octant in zip(bodies, bodies_octant) if octant == i],
-                coords_min=octant_coords(coords_min, coords_max, i)[0],
-                coords_max=octant_coords(coords_min, coords_max, i)[1]
-            )
-            self._data.nodes_children_types[node_id, i] = child_type
-            self._data.nodes_children_ids[node_id, i] = child_id
+            self._data.nodes_positions[node_id] = np.average(self._data.positions[octant_bodies], axis=0, weights=self._data.masses[octant_bodies])
+            self._data.nodes_masses[node_id] = np.sum(self._data.masses[octant_bodies])
+            self._data.nodes_sizes[node_id] = coords_max[0] - coords_min[0]
 
-        return OCTANT_NODE, node_id
+            # split bodies into sub octants
+            bodies_sub_octant = np.sum((self._data.positions[octant_bodies] > coords_mid) * [1, 2, 4], axis=1)
+
+            # create tasks
+            for i in range(8):
+                tasks_targets.append((node_id, i))
+                tasks_args.append((
+                    octant_bodies[bodies_sub_octant == i],
+                    *octant_coords(coords_min, coords_max, i)
+                ))
+
+        # run tasks
+        results = self._pool.starmap(worker.build_octree_branch, tasks_args)
+
+        # update references in nodes
+        for (node_id, i), (sub_node_type, sub_node_id) in zip(tasks_targets, results):
+            self._data.nodes_children_types[node_id, i] = sub_node_type
+            self._data.nodes_children_ids[node_id, i] = sub_node_id
 
     def _update_accelerations(self):
         """ Calculates accelerations of the bodies. """
+        if self.bodies < 2:
+            return
+
         self._pool.map(worker.update_acceleration, range(self.bodies))
 
     def _update_positions(self):

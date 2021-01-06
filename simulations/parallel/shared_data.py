@@ -1,3 +1,4 @@
+from multiprocessing import Value
 from typing import NamedTuple
 
 import numpy as np
@@ -9,6 +10,8 @@ class SharedData(NamedTuple):
     theta: float
     gravitational_constant: float
     softening: float
+
+    nodes_count: Value
 
     positions: np.ndarray
     velocities: np.ndarray
