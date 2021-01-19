@@ -24,7 +24,7 @@ PARSER.add_argument(
     '-m', '--method',
     type=str,
     required=True,
-    choices=['brute', 'sequential', 'parallel'],
+    choices=['brute', 'sequential', 'parallel', 'distributed'],
     help='Simulation method'
 )
 
