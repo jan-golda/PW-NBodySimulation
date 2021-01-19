@@ -21,11 +21,11 @@ class DistributedSimulation(Simulation):
         super().__init__(positions, velocities, masses, params)
         self._theta = params.theta
 
-        self._init_memory(positions, velocities, masses)
-
         self._comm = MPI.COMM_WORLD
         self._comm_rank = self._comm.Get_rank()
         self._comm_size = self._comm.Get_size()
+
+        self._init_memory(positions, velocities, masses)
 
         # range of id this instance should operate on
         size, extras = divmod(self.bodies, self._comm_size)
@@ -51,6 +51,11 @@ class DistributedSimulation(Simulation):
             nodes_children_ids=np.empty((max_nodes, 8), dtype=np.int)
         )
 
+        # broadcast initial data
+        self._comm.Bcast(self._data.positions, root=0)
+        self._comm.Bcast(self._data.velocities, root=0)
+        self._comm.Bcast(self._data.masses, root=0)
+
     def simulate(self) -> Iterable[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """ Runs parallel implementation of Barnes-Hut simulation. """
         while True:
@@ -62,6 +67,7 @@ class DistributedSimulation(Simulation):
 
     def _build_octree(self):
         """ Builds octree used in Barnes-Hut. """
+        # build only on rank 0
         if self._comm_rank == 0:
             # cleanup old tree
             self._nodes_positions = []
@@ -85,10 +91,12 @@ class DistributedSimulation(Simulation):
             self._data.nodes_children_types[:len(self._nodes_children_types)] = self._nodes_children_types
             self._data.nodes_children_ids[:len(self._nodes_children_ids)] = self._nodes_children_ids
 
-        # synchronize initial data
-        self._data.broadcast()
-
-        self._comm.Barrier()
+        # send graph to others
+        self._comm.Bcast(self._data.nodes_positions, root=0)
+        self._comm.Bcast(self._data.nodes_masses, root=0)
+        self._comm.Bcast(self._data.nodes_sizes, root=0)
+        self._comm.Bcast(self._data.nodes_children_types, root=0)
+        self._comm.Bcast(self._data.nodes_children_ids, root=0)
 
     def _build_octree_branch(self, bodies: List[int], coords_min: np.ndarray, coords_max: np.ndarray) -> Tuple[int, int]:
         """
