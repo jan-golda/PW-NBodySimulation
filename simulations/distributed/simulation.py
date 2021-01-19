@@ -53,7 +53,6 @@ class DistributedSimulation(Simulation):
 
     def simulate(self) -> Iterable[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """ Runs parallel implementation of Barnes-Hut simulation. """
-        print(f'[{self._comm_rank}] SIMULATE')
         while True:
             self._build_octree()
             self._update_accelerations()
