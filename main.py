@@ -2,11 +2,13 @@ import sys
 from typing import Dict, Type, Callable, Tuple
 
 import numpy as np
+from mpi4py import MPI
 
 from benchmarking import benchmark
 from distributions import center_of_mass_distribution
 from simulations.brute_force import BruteForceSimulation
 from simulations.core import Simulation
+from simulations.distributed import DistributedSimulation
 from simulations.parallel import ParallelSimulation
 from simulations.sequential import SequentialSimulation
 from visualization import Visualization
@@ -16,7 +18,8 @@ from arguments import PARSER
 SIMULATIONS: Dict[str, Type[Simulation]] = {
     'brute': BruteForceSimulation,
     'sequential': SequentialSimulation,
-    'parallel': ParallelSimulation
+    'parallel': ParallelSimulation,
+    'distributed': DistributedSimulation
 }
 
 # available initial distributions
@@ -39,6 +42,12 @@ if __name__ == '__main__':
         masses=masses,
         params=params
     )
+
+    # for MPI stop them here and put to work!
+    if isinstance(simulation, DistributedSimulation) and MPI.COMM_WORLD.Get_rank() != 0:
+        sim = simulation.simulate()
+        while True:
+            next(sim)
 
     # benchmarking
     if params.benchmark:
